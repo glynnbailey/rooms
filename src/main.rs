@@ -3,7 +3,8 @@
 use rand::prelude::*;
 
 const ROOMSIZE: usize = 10;
-const FLOORSIZE: usize = 40;
+const FLOORSIZE: usize = 100;
+const FLOORCOUNT: usize = 10;
 
 struct Room {
     layout: Vec<Vec<TileType>>,
@@ -155,21 +156,29 @@ impl Room {
 }
 
 struct Map {
-    layout: Vec<Vec<TileType>>
+    layout: Vec<Vec<Vec<TileType>>>
 }
 
 impl Map {
-    fn new((start_x, start_y): (usize, usize)) -> Self {
-        let mut map = Self {
-            layout: vec![vec![TileType::None; FLOORSIZE]; FLOORSIZE]
-        };
+    fn new() -> Self {
+        Self {
+            layout: vec![vec![vec![TileType::None; FLOORSIZE]; FLOORSIZE]; FLOORCOUNT]
+        }
+    }
+
+    fn generate_floor(&mut self, z: usize, (start_x, start_y): (usize, usize)) {
+        // sanity check the start coordinates to make sure they are on the map
+        if start_x >= FLOORSIZE || start_y >= FLOORSIZE || z >= FLOORCOUNT {
+            panic!("attempting to generate floor with start position larger than FLOORSIZE or zlevel larger than FLOORCOUNT")
+        }
+
         let mut available_connectors = Vec::new();
         let mut blocked_connectors = Vec::new();
 
         // generate the first room
         let mut room = Room::new();
 
-        // update the room so its center is at the start position
+        // update the room so its center is at the start position, if it goes off the map set it to the map edge
         room.x = start_x - (ROOMSIZE/2);
         room.y = start_y - (ROOMSIZE/2);
 
@@ -183,7 +192,7 @@ impl Map {
         // place the room on the map
         for y in 0..ROOMSIZE {
             for x in 0..ROOMSIZE {
-                map.layout[room.y + y][room.x + x] = room.layout[y][x];
+                self.layout[z][room.y + y][room.x + x] = room.layout[y][x];
             }
         }
 
@@ -211,7 +220,6 @@ impl Map {
                     };
 
                     // check the room doesnt go out of bounds into positive space
-                    // TODO take None tiles into account, it doesnt matter if they go out of bounds
                     if room.x + ROOMSIZE >= FLOORSIZE || room.y + ROOMSIZE >= FLOORSIZE {
                         continue 'new_room_check
                     }
@@ -224,20 +232,20 @@ impl Map {
                                 TileType::None => continue,
 
                                 // Floors can only go on None othewise it would pave over existing map features
-                                TileType::Floor => match map.layout[room.y + y][room.x + x] {
+                                TileType::Floor => match self.layout[z][room.y + y][room.x + x] {
                                     TileType::None => continue,
                                     _ => continue 'new_connector_check,
                                 }
 
                                 // Wall can only go on None or other Wall
-                                TileType::Wall => match map.layout[room.y + y][room.x + x] {
+                                TileType::Wall => match self.layout[z][room.y + y][room.x + x] {
                                     TileType::None => continue,
                                     TileType::Wall => continue,
                                     _ => continue 'new_connector_check,
                                 },
 
                                 // Door can only go onto None or Door
-                                TileType::Door => match map.layout[room.y + y][room.x + x] {
+                                TileType::Door => match self.layout[z][room.y + y][room.x + x] {
                                     TileType::None => continue,
                                     TileType::Door => continue,
                                     _ => continue 'new_connector_check,
@@ -252,10 +260,10 @@ impl Map {
                             if let TileType::None = room.layout[y][x] {
                                 continue
                             }
-                            map.layout[room.y + y][room.x + x] = room.layout[y][x];
+                            self.layout[z][room.y + y][room.x + x] = room.layout[y][x];
                         }
                     }
-                    map.layout[available_connector.y][available_connector.x] = TileType::Door;
+                    self.layout[z][available_connector.y][available_connector.x] = TileType::Door;
 
                     // gather up the room's other connectors for use later
                     while let Some(mut connector) = room.connectors.pop() {
@@ -282,29 +290,27 @@ impl Map {
                 continue
             }
 
-            if (map.layout[connector.y - 1][connector.x] == TileType::Floor && map.layout[connector.y + 1][connector.x] == TileType::Floor) ||
-            (map.layout[connector.y][connector.x - 1] == TileType::Floor && map.layout[connector.y][connector.x + 1] == TileType::Floor)
+            if (self.layout[z][connector.y - 1][connector.x] == TileType::Floor && self.layout[z][connector.y + 1][connector.x] == TileType::Floor) ||
+            (self.layout[z][connector.y][connector.x - 1] == TileType::Floor && self.layout[z][connector.y][connector.x + 1] == TileType::Floor)
             {
-                map.layout[connector.y][connector.x] = TileType::Door;
+                self.layout[z][connector.y][connector.x] = TileType::Door;
             }
         }
 
         // turn all remaining None into Wall
         for y in 0..FLOORSIZE {
             for x in 0..FLOORSIZE {
-                if let TileType::None = map.layout[y][x] {
-                    map.layout[y][x] = TileType::Wall;
+                if let TileType::None = self.layout[z][y][x] {
+                    self.layout[z][y][x] = TileType::Wall;
                 }
             }
         }
-
-        map
     }
 
-    fn print(&self) {
+    fn print(&self, z: usize) {
         for y in 0..FLOORSIZE {
             for x in 0..FLOORSIZE {
-                match self.layout[y][x] {
+                match self.layout[z][y][x] {
                     // TileType::None => panic!("TileType::None found in final map"),
                     TileType::None => print!("?"),
                     TileType::Floor => print!("."),
@@ -324,6 +330,7 @@ fn main() {
     // let room = Room::new();
     // room.print();
 
-    let map = Map::new((FLOORSIZE/2, FLOORSIZE/2));
-    map.print()
+    let mut map = Map::new();
+    map.generate_floor(0, (FLOORSIZE/2, FLOORSIZE/2));
+    map.print(0)
 }
