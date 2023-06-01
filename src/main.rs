@@ -21,14 +21,14 @@ enum TileType {
     Door,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Connector {
     x: usize,
     y: usize,
     direction: Direction
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Direction {
     North,
     South,
@@ -70,8 +70,8 @@ impl Room {
 
         // wall in and add connectors
         room.wall_in_floor();
-        room.add_connectors_cross((width/2, height/2));
-        
+        room.add_four_connectors();
+
         room
     }
 
@@ -96,44 +96,69 @@ impl Room {
         }
     }
 
-    fn add_connectors_cross(&mut self, (center_x, center_y): (usize, usize)) {
-        // TODO check the entire rows in each direction rather than just the center and find the wall that sticks out the furthest to make connecting easier
+    fn add_four_connectors(&mut self) {
+        let mut rng = thread_rng();
+        let mut possible_connectors = Vec::new();
 
-        // north
+        // North
+        // First scan each row for possible connectors, which is a wall tile with a floor directly south of it
         for y in 0..ROOMSIZE {
-            if let TileType::Wall = self.layout[y][center_x] {
-                self.connectors.push(Connector { x: center_x, y, direction: Direction::North });
-                // self.layout[y][center_x] = TileType::Door; // door icon for debugging
+            for x in 1..ROOMSIZE-1 {
+                if self.layout[y][x] == TileType::Wall && self.layout[y+1][x] == TileType::Floor {
+                    possible_connectors.push(Connector { x, y, direction: Direction::North })
+                }
+            }
+            if !possible_connectors.is_empty() {
                 break
             }
         }
 
-        // south
+        // pick one of the possible connectors randomly and add it to the list
+        self.connectors.push(possible_connectors[rng.gen_range(0..possible_connectors.len())]);
+
+
+        // South
+        possible_connectors.clear();
         for y in (0..ROOMSIZE).rev() {
-            if let TileType::Wall = self.layout[y][center_x] {
-                self.connectors.push(Connector { x: center_x, y, direction: Direction::South });
-                // self.layout[y][center_x] = TileType::Door; // door icon for debugging
+            for x in 1..ROOMSIZE-1 {
+                if self.layout[y][x] == TileType::Wall && self.layout[y-1][x] == TileType::Floor {
+                    possible_connectors.push(Connector { x, y, direction: Direction::South })
+                }
+            }
+            if !possible_connectors.is_empty() {
                 break
             }
         }
+        self.connectors.push(possible_connectors[rng.gen_range(0..possible_connectors.len())]);
 
         // west
+        possible_connectors.clear();
         for x in 0..ROOMSIZE {
-            if let TileType::Wall = self.layout[center_y][x] {
-                self.connectors.push(Connector { x, y: center_y, direction: Direction::West });
-                // self.layout[center_y][x] = TileType::Door; // door icon for debugging
+            for y in 1..ROOMSIZE-1 {
+                if self.layout[y][x] == TileType::Wall && self.layout[y][x+1] == TileType::Floor {
+                    possible_connectors.push(Connector { x, y, direction: Direction::West })
+                }
+            }
+            if !possible_connectors.is_empty() {
                 break
             }
         }
+        self.connectors.push(possible_connectors[rng.gen_range(0..possible_connectors.len())]);
 
         // east
+        possible_connectors.clear();
         for x in (0..ROOMSIZE).rev() {
-            if let TileType::Wall = self.layout[center_y][x] {
-                self.connectors.push(Connector { x, y: center_y, direction: Direction::East });
-                // self.layout[center_y][x] = TileType::Door; // door icon for debugging
+            for y in 1..ROOMSIZE-1 {
+                if self.layout[y][x] == TileType::Wall && self.layout[y][x-1] == TileType::Floor {
+                    possible_connectors.push(Connector { x, y, direction: Direction::East })
+                }
+            }
+            if !possible_connectors.is_empty() {
                 break
             }
         }
+        self.connectors.push(possible_connectors[rng.gen_range(0..possible_connectors.len())]);
+
     }
 
     fn print(&self) {
@@ -244,9 +269,9 @@ impl Map {
                                     _ => continue 'new_connector_check,
                                 },
 
-                                // Door can only go onto None or Door
+                                // Door can only go onto Wall or Door
                                 TileType::Door => match self.layout[z][room.y + y][room.x + x] {
-                                    TileType::None => continue,
+                                    TileType::Wall => continue,
                                     TileType::Door => continue,
                                     _ => continue 'new_connector_check,
                                 }
@@ -289,7 +314,8 @@ impl Map {
             if connector.x <= 0 || connector.x >= FLOORSIZE -1 || connector.y<= 0 || connector.y >= FLOORSIZE -1 {
                 continue
             }
-
+            
+            // check if north/south or east/west are floor and if true turn into a door
             if (self.layout[z][connector.y - 1][connector.x] == TileType::Floor && self.layout[z][connector.y + 1][connector.x] == TileType::Floor) ||
             (self.layout[z][connector.y][connector.x - 1] == TileType::Floor && self.layout[z][connector.y][connector.x + 1] == TileType::Floor)
             {
@@ -297,7 +323,7 @@ impl Map {
             }
         }
 
-        // turn all remaining None into Wall
+        // turn all unused None into Wall
         for y in 0..FLOORSIZE {
             for x in 0..FLOORSIZE {
                 if let TileType::None = self.layout[z][y][x] {
@@ -323,14 +349,11 @@ impl Map {
     }
 }
 
-
-
-
 fn main() {
     // let room = Room::new();
     // room.print();
 
     let mut map = Map::new();
-    map.generate_floor(0, (FLOORSIZE/2, FLOORSIZE/2));
+    map.generate_floor(0, (FLOORSIZE/2, ROOMSIZE/2));
     map.print(0)
 }
