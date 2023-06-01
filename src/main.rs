@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use rand::prelude::*;
 
 const ROOMSIZE: usize = 10;
@@ -6,11 +8,11 @@ const FLOORSIZE: usize = 40;
 struct Room {
     layout: Vec<Vec<TileType>>,
     connectors: Vec<Connector>,
-    center_x: usize,
-    center_y: usize,
+    x: usize,
+    y: usize,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TileType {
     None,
     Floor,
@@ -50,8 +52,8 @@ impl Room {
         let mut room = Self {
             layout: vec![vec![TileType::None; ROOMSIZE]; ROOMSIZE],
             connectors: Vec::new(),
-            center_x: 0,
-            center_y: 0,
+            x: 0,
+            y: 0,
         };
 
         // generate dimensions
@@ -64,10 +66,6 @@ impl Room {
                 room.layout[y][x] = TileType::Floor;
             }
         }
-
-        // record room center
-        room.center_x = width/2;
-        room.center_y = height/2;
 
         // wall in and add connectors
         room.wall_in_floor();
@@ -104,7 +102,7 @@ impl Room {
         for y in 0..ROOMSIZE {
             if let TileType::Wall = self.layout[y][center_x] {
                 self.connectors.push(Connector { x: center_x, y, direction: Direction::North });
-                self.layout[y][center_x] = TileType::Door; // door icon for debugging
+                // self.layout[y][center_x] = TileType::Door; // door icon for debugging
                 break
             }
         }
@@ -113,7 +111,7 @@ impl Room {
         for y in (0..ROOMSIZE).rev() {
             if let TileType::Wall = self.layout[y][center_x] {
                 self.connectors.push(Connector { x: center_x, y, direction: Direction::South });
-                self.layout[y][center_x] = TileType::Door; // door icon for debugging
+                // self.layout[y][center_x] = TileType::Door; // door icon for debugging
                 break
             }
         }
@@ -122,7 +120,7 @@ impl Room {
         for x in 0..ROOMSIZE {
             if let TileType::Wall = self.layout[center_y][x] {
                 self.connectors.push(Connector { x, y: center_y, direction: Direction::West });
-                self.layout[center_y][x] = TileType::Door; // door icon for debugging
+                // self.layout[center_y][x] = TileType::Door; // door icon for debugging
                 break
             }
         }
@@ -131,7 +129,7 @@ impl Room {
         for x in (0..ROOMSIZE).rev() {
             if let TileType::Wall = self.layout[center_y][x] {
                 self.connectors.push(Connector { x, y: center_y, direction: Direction::East });
-                self.layout[center_y][x] = TileType::Door; // door icon for debugging
+                // self.layout[center_y][x] = TileType::Door; // door icon for debugging
                 break
             }
         }
@@ -171,24 +169,25 @@ impl Map {
         // generate the first room
         let mut room = Room::new();
 
+        // update the room so its center is at the start position
+        room.x = start_x - (ROOMSIZE/2);
+        room.y = start_y - (ROOMSIZE/2);
+
         // update and store the connectors
         while let Some(mut connector) = room.connectors.pop() {
-                connector.x += start_x;
-                connector.y += start_y;
-                available_connectors.push(connector);
+            connector.x += room.x;
+            connector.y += room.y;
+            available_connectors.push(connector);
         };
 
-        // place the room with the center at the start position
-        let offset_x = start_x - room.center_x;
-        let offset_y = start_y - room.center_y;
-        for room_y in 0..ROOMSIZE {
-            for room_x in 0..ROOMSIZE {
-                map.layout[offset_y + room_y][offset_x + room_x] = room.layout[room_y][room_x];
+        // place the room on the map
+        for y in 0..ROOMSIZE {
+            for x in 0..ROOMSIZE {
+                map.layout[room.y + y][room.x + x] = room.layout[y][x];
             }
         }
 
         // now loop through the available_connectors and try to add new rooms to them
-
         'available_connector_check: while let Some(available_connector) = available_connectors.pop() {
             
             // try multiple times to find a room that fits
@@ -201,37 +200,44 @@ impl Map {
 
                     let new_connector = room.connectors[i].clone();
 
-                    // move the room into position and check if it will fit
-                    let (offset_x, overflow_x) = available_connector.x.overflowing_sub(new_connector.x);
-                    let (offset_y, overflow_y) = available_connector.y.overflowing_sub(new_connector.y);
+                    // move the room into position and check it doesnt go out of bounds into negative space
+                    room.x = match available_connector.x.checked_sub(new_connector.x) {
+                        Some(x) => x,
+                        None => continue 'new_connector_check,
+                    };
+                    room.y = match available_connector.y.checked_sub(new_connector.y) {
+                        Some(y) => y,
+                        None => continue 'new_connector_check,
+                    };
 
-                    // check the room doesnt go out of bounds
-                    if overflow_x || overflow_y || offset_x + ROOMSIZE >= FLOORSIZE || offset_y + ROOMSIZE >= FLOORSIZE {
+                    // check the room doesnt go out of bounds into positive space
+                    // TODO take None tiles into account, it doesnt matter if they go out of bounds
+                    if room.x + ROOMSIZE >= FLOORSIZE || room.y + ROOMSIZE >= FLOORSIZE {
                         continue 'new_room_check
                     }
 
-                    for room_y in 0..ROOMSIZE {
-                        for room_x in 0..ROOMSIZE {
+                    for y in 0..ROOMSIZE {
+                        for x in 0..ROOMSIZE {
                             // check the room fits onto the map
-                            match room.layout[room_y][room_x] {
+                            match room.layout[y][x] {
                                 // ignore None
                                 TileType::None => continue,
 
-                                // floors can only go on None othewise it would pave over existing map features
-                                TileType::Floor => match map.layout[offset_y + room_y][offset_x + room_x] {
+                                // Floors can only go on None othewise it would pave over existing map features
+                                TileType::Floor => match map.layout[room.y + y][room.x + x] {
                                     TileType::None => continue,
                                     _ => continue 'new_connector_check,
                                 }
 
-                                // walls can only go on None or other Wall
-                                TileType::Wall => match map.layout[offset_y + room_y][offset_x + room_x] {
+                                // Wall can only go on None or other Wall
+                                TileType::Wall => match map.layout[room.y + y][room.x + x] {
                                     TileType::None => continue,
                                     TileType::Wall => continue,
                                     _ => continue 'new_connector_check,
                                 },
 
-                                // doors can only go onto None or Door
-                                TileType::Door => match map.layout[offset_y + room_y][offset_x + room_x] {
+                                // Door can only go onto None or Door
+                                TileType::Door => match map.layout[room.y + y][room.x + x] {
                                     TileType::None => continue,
                                     TileType::Door => continue,
                                     _ => continue 'new_connector_check,
@@ -240,18 +246,22 @@ impl Map {
                         }
                     }
 
-                    println!("fits");
-
                     // the room fits, place it
-                    for room_y in 0..ROOMSIZE {
-                        for room_x in 0..ROOMSIZE {
-                            map.layout[offset_y + room_y][offset_x + room_x] = room.layout[room_y][room_x];
+                    for y in 0..ROOMSIZE {
+                        for x in 0..ROOMSIZE {
+                            if let TileType::None = room.layout[y][x] {
+                                continue
+                            }
+                            map.layout[room.y + y][room.x + x] = room.layout[y][x];
                         }
                     }
+                    map.layout[available_connector.y][available_connector.x] = TileType::Door;
 
-                    // gather up the new rooms other connectors for use later
-                    while let Some(connector) = room.connectors.pop() {
+                    // gather up the room's other connectors for use later
+                    while let Some(mut connector) = room.connectors.pop() {
                         if connector != new_connector {
+                            connector.x += room.x;
+                            connector.y += room.y;
                             available_connectors.push(connector);
                         }
                     }
@@ -265,7 +275,28 @@ impl Map {
             blocked_connectors.push(available_connector);
         }
 
-        // check blocked connectors
+        // check blocked connectors to see if there are walls on both sides and if so turn it into a door
+        for connector in blocked_connectors.iter() {
+            // check map boundary
+            if connector.x <= 0 || connector.x >= FLOORSIZE -1 || connector.y<= 0 || connector.y >= FLOORSIZE -1 {
+                continue
+            }
+
+            if (map.layout[connector.y - 1][connector.x] == TileType::Floor && map.layout[connector.y + 1][connector.x] == TileType::Floor) ||
+            (map.layout[connector.y][connector.x - 1] == TileType::Floor && map.layout[connector.y][connector.x + 1] == TileType::Floor)
+            {
+                map.layout[connector.y][connector.x] = TileType::Door;
+            }
+        }
+
+        // turn all remaining None into Wall
+        for y in 0..FLOORSIZE {
+            for x in 0..FLOORSIZE {
+                if let TileType::None = map.layout[y][x] {
+                    map.layout[y][x] = TileType::Wall;
+                }
+            }
+        }
 
         map
     }
